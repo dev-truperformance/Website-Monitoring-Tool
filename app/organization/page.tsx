@@ -94,10 +94,12 @@ export default function OrganizationPage() {
         const error = await response.json()
         console.error('Failed to create organization:', error)
         toast.error(error.error || 'Failed to create organization')
+        setIsModalOpen(false) // Close modal on error too
       }
     } catch (error) {
       console.error('Error creating organization:', error)
       toast.error('Network error. Please try again.')
+      setIsModalOpen(false) // Close modal on error too
     } finally {
       setIsLoading(false)
     }

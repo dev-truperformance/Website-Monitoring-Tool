@@ -1,8 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { currentUser } from '@clerk/nextjs/server'
 import { db } from '@/lib/drizzle'
-import { users, monitors, organizationMembers } from '@/drizzle/schema'
-import { eq, and } from 'drizzle-orm'
+import { users, monitors, organizationMembers, organizations } from '@/drizzle/schema'
+import { eq, and, inArray } from 'drizzle-orm'
+
+// Convert interval string to seconds
+function convertIntervalToSeconds(interval: string): number {
+  const intervalMap: Record<string, number> = {
+    '30 sec': 30,
+    '1 min': 60,
+    '5 min': 300,
+    '10 min': 600,
+    '30 min': 1800,
+    '1 hr': 3600,
+  };
+  return intervalMap[interval] || 300; // Default to 5 minutes
+}
 
 interface Monitor {
   id: string
@@ -61,19 +74,45 @@ export async function GET(request: NextRequest) {
       .from(organizationMembers)
       .where(eq(organizationMembers.userId, user[0].id))
 
+    console.log('🔍 User organizations from DB:', userOrgs)
+
     if (!userOrgs || userOrgs.length === 0) {
+      console.log('❌ No organizations found for user')
       return NextResponse.json({ success: true, monitors: [] })
     }
 
     // Fetch monitors for user's organizations
     const orgIds = userOrgs.map(org => org.organizationId)
-    const monitorsData = await db.select().from(monitors)
-      .where(eq(monitors.organizationId, orgIds[0])) // For now, use first organization
+    console.log('🏢 Organization IDs to query:', orgIds)
+    
+    const monitorsData = await db
+      .select({
+        id: monitors.id,
+        organizationId: monitors.organizationId,
+        createdBy: monitors.createdBy,
+        name: monitors.name,
+        url: monitors.url,
+        intervalSeconds: monitors.intervalSeconds,
+        timeoutSeconds: monitors.timeoutSeconds,
+        isActive: monitors.isActive,
+        status: monitors.status,
+        uptimePercentage: monitors.uptimePercentage,
+        lastCheckAt: monitors.lastCheckAt,
+        responseTimeMs: monitors.responseTimeMs,
+        createdAt: monitors.createdAt,
+        updatedAt: monitors.updatedAt,
+        organizationName: organizations.name, // Include organization name
+      })
+      .from(monitors)
+      .leftJoin(organizations, eq(monitors.organizationId, organizations.id))
+      .where(inArray(monitors.organizationId, orgIds)) // Query for all user organizations
       .orderBy(monitors.createdAt)
+
+    console.log('📊 Monitors found:', monitorsData)
 
     return NextResponse.json({ 
       success: true, 
-      monitors: monitorsData.map((monitor: DrizzleMonitor) => ({
+      monitors: monitorsData.map((monitor: any) => ({
         id: monitor.id,
         organizationId: monitor.organizationId,
         createdBy: monitor.createdBy,
@@ -87,7 +126,8 @@ export async function GET(request: NextRequest) {
         lastCheckAt: monitor.lastCheckAt,
         responseTimeMs: monitor.responseTimeMs,
         createdAt: monitor.createdAt,
-        updatedAt: monitor.updatedAt
+        updatedAt: monitor.updatedAt,
+        organizationName: monitor.organizationName, // Include organization name
       }))
     })
   } catch (error) {
@@ -115,13 +155,16 @@ export async function POST(request: NextRequest) {
     const user = userData[0]
 
     const body = await request.json()
-    const { url, name, organizationId } = body
+    const { url, name, organizationId, interval } = body
 
     if (!url) {
       return NextResponse.json({ 
         error: 'URL is required' 
       }, { status: 400 })
     }
+
+    // Convert interval string to seconds
+    const intervalSeconds = convertIntervalToSeconds(interval)
 
     // Get user's organizations if organizationId not provided
     let targetOrganizationId = organizationId
@@ -147,8 +190,8 @@ export async function POST(request: NextRequest) {
       createdBy: user.id,
       name: name || 'Untitled Monitor',
       url,
-      intervalSeconds: 300, // 5 minutes default
-      timeoutSeconds: 10, // 10 seconds default
+      intervalSeconds,
+      timeoutSeconds: 10,
       isActive: true,
       status: 'up',
       uptimePercentage: 100,
@@ -218,17 +261,24 @@ export async function DELETE(request: NextRequest) {
       .from(organizationMembers)
       .where(eq(organizationMembers.userId, user.id))
 
+    console.log('🔍 User organizations for DELETE:', userOrgs)
+
     if (!userOrgs || userOrgs.length === 0) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
     // Get the monitor and verify it belongs to user's organization
+    const orgIds = userOrgs.map(org => org.organizationId)
+    console.log('🏢 Checking monitor in organizations:', orgIds)
+    
     const monitorData = await db.select().from(monitors)
       .where(and(
         eq(monitors.id, monitorId),
-        eq(monitors.organizationId, userOrgs[0].organizationId)
+        inArray(monitors.organizationId, orgIds)
       ))
       .limit(1);
+
+    console.log('📊 Monitor found for deletion:', monitorData)
 
     if (!monitorData || monitorData.length === 0) {
       return NextResponse.json({ 

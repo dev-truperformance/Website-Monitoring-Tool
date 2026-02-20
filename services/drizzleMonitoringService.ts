@@ -13,19 +13,27 @@ class DrizzleMonitoringService {
   private isRunning = false;
 
   // Create status report for every check (using new monitor_checks table)
-  async createStatusReport(monitorId: string, url: string, status: 'up' | 'down', responseTime: number, error?: string) {
+  async createStatusReport(monitorId: string, url: string, status: 'up' | 'down', responseTime: number, error?: string, statusCode?: number) {
     try {
-      await db.insert(monitorChecks).values({
+      console.log(`📊 Creating status report for monitor ${monitorId}: ${status} (${responseTime}ms)`);
+      
+      const result = await db.insert(monitorChecks).values({
         monitorId,
         status: status === 'up',
         responseTimeMs: responseTime,
         errorType: error,
+        statusCode: statusCode || null,
         checkedAt: new Date()
-      });
+      }).returning();
 
+      console.log(`✅ Status report created successfully:`, result[0]);
       console.log(`📊 Status report created for ${url}: ${status} (${responseTime}ms)`);
     } catch (error) {
-      console.error('Error creating status report:', error);
+      console.error('❌ Error creating status report:', error);
+      console.error('Monitor ID:', monitorId);
+      console.error('Status:', status);
+      console.error('Response Time:', responseTime);
+      console.error('Error:', error);
     }
   }
 

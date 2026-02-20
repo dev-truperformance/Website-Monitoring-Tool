@@ -38,7 +38,7 @@ const validationSchema = Yup.object().shape({
     .oneOf(['http', 'ping', 'port'], 'Invalid type selected'),
   interval: Yup.string()
     .required('Interval is required')
-    .oneOf(['1 min', '5 min', '10 min', '30 min','1 hr'], 'Invalid interval selected')
+    .oneOf(['30 sec','1 min', '5 min', '10 min', '30 min', '1 hr'], 'Invalid interval selected')
 });
 
 interface AddMonitorModalProps {
@@ -144,6 +144,9 @@ export default function AddMonitorModal({ isOpen, onClose, onAddMonitor }: AddMo
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[200px]">
                 <DropdownMenuGroup>
+                  <DropdownMenuItem onClick={() => formik.setFieldValue('interval', '30 sec')}>
+                    30 sec
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => formik.setFieldValue('interval', '1 min')}>
                     1 minute
                   </DropdownMenuItem>
@@ -152,6 +155,12 @@ export default function AddMonitorModal({ isOpen, onClose, onAddMonitor }: AddMo
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => formik.setFieldValue('interval', '10 min')}>
                     10 minutes
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => formik.setFieldValue('interval', '30 min')}>
+                    30 minutes
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => formik.setFieldValue('interval', '1 hr')}>
+                    1 hour
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
               </DropdownMenuContent>

@@ -17,6 +17,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
+import { useUser } from "@clerk/nextjs"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,7 +27,6 @@ import {
 import { ChevronDown, Filter, Plus, Search, Settings, Trash2, ArrowUpDown, X, Check, Pause } from "lucide-react"
 import ThemeToggle from "@/components/ui/theme-toggle"
 import { useState, useEffect, useMemo, useRef, useCallback } from "react"
-import { useUser } from "@clerk/nextjs"
 import { toast } from "sonner"
 
 type StatusFilter = 'all' | 'up' | 'down'
@@ -148,6 +148,8 @@ export default function Page() {
       setLoading(true);
       const response = await fetch('/api/monitors');
 
+      console.log('📡 Fetching monitors response status:', response.status);
+
       if (response.ok) {
         const data = await response.json();
         console.log("📊 Monitors fetched:", data);
@@ -162,10 +164,11 @@ export default function Page() {
           incidents: 0, // Would need to be calculated from incidents table
           interval: `${monitor.intervalSeconds}s`,
           owner: undefined, // Would need to fetch from user data
-          organization: monitor.organizationId,
+          organization: monitor.organizationName || monitor.organizationId, // Use organization name, fallback to ID
           isMonitoringActive: monitor.isActive,
         }));
         
+        console.log('🔄 Transformed monitors:', transformedMonitors);
         setMonitors(transformedMonitors);
         
         // Start server monitoring service
@@ -268,6 +271,7 @@ export default function Page() {
       if (orgsResponse.ok) {
         const orgsData = await orgsResponse.json();
         const userOrganizations = orgsData.organizations || [];
+        console.log('🏢 Available organizations:', userOrganizations);
         
         // Use the provided organization or the most recently created one
         let targetOrgId = newMonitor.organization;
@@ -276,8 +280,11 @@ export default function Page() {
           const mostRecentOrg = userOrganizations.reduce((latest: any, current: any) => {
             return new Date(latest.createdAt) > new Date(current.createdAt) ? latest : current;
           });
-          targetOrgId = mostRecentOrg.organizationId;
+          targetOrgId = mostRecentOrg.id; // Use 'id' not 'organizationId'
+          console.log('🎯 Selected most recent organization:', mostRecentOrg);
         }
+        
+        console.log('🎯 Target organization ID:', targetOrgId);
         
         if (!targetOrgId) {
           toast.error("No organization available. Please create an organization first.");
@@ -290,7 +297,8 @@ export default function Page() {
           body: JSON.stringify({ 
             url: newMonitor.url, 
             name: newMonitor.url, // Use URL as name for now
-            organizationId: targetOrgId
+            organizationId: targetOrgId,
+            interval: newMonitor.interval // Pass interval
           }),
         });
 
@@ -406,9 +414,12 @@ export default function Page() {
 
   const handleDeleteMonitor = async (id: string) => {
     try {
+      console.log('🗑️ Attempting to delete monitor:', id);
       const response = await fetch(`/api/monitors?id=${id}`, {
         method: 'DELETE',
       });
+
+      console.log('📡 Delete response status:', response.status);
 
       if (response.ok) {
         console.log("✅ Monitor deleted");
@@ -417,8 +428,9 @@ export default function Page() {
         // Refresh monitors list
         fetchMonitors();
       } else {
-        console.error("❌ Failed to delete monitor");
-        toast.error("Failed to delete monitor");
+        const errorData = await response.json();
+        console.error("❌ Failed to delete monitor:", errorData);
+        toast.error(errorData.error || "Failed to delete monitor");
       }
     } catch (error) {
       console.error("❌ Error deleting monitor:", error);

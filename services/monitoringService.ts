@@ -149,11 +149,14 @@ class MonitoringService {
   private parseIntervalToMs(interval: string): number {
     if (!interval) return 5 * 60 * 1000;
     
+    console.log(`⏰ Parsing interval: "${interval}"`);
+    
     const match = interval.match(/(\d+)\s*(min|hr|hour|day|week|month|sec|s)/i);
     if (!match) return 5 * 60 * 1000;
 
     const [, num, unit] = match;
     const value = parseInt(num);
+    const result = value * 1000; // Default to seconds
 
     switch (unit.toLowerCase()) {
       case 'sec':
@@ -171,7 +174,7 @@ class MonitoringService {
       case 'month':
         return value * 30 * 24 * 60 * 60 * 1000;
       default:
-        return 5 * 60 * 1000;
+        return result;
     }
   }
 
@@ -182,13 +185,14 @@ class MonitoringService {
     let currentStatus: 'up' | 'down' = 'up';
     let responseTime = 0;
     let error: string | undefined;
+    let response: Response | undefined;
     
     try {
       // Use fetch with timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-      const response = await fetch(monitor.url, {
+      response = await fetch(monitor.url, {
         method: 'GET',
         signal: controller.signal,
         headers: {
@@ -202,7 +206,7 @@ class MonitoringService {
       // Check if status code is 200 (OK)
       if (response.status === 200) {
         currentStatus = 'up';
-        console.log(`✅ ${monitor.url} - UP (${responseTime}ms)`);
+        console.log(`✅ ${monitor.url} - UP (${responseTime}ms) - Status: ${response.status}`);
       } else {
         currentStatus = 'down';
         error = `HTTP ${response.status} ${response.statusText}`;
@@ -217,7 +221,8 @@ class MonitoringService {
     }
 
     // Push ALL status reports to PostgreSQL
-    await this.createStatusReport(monitor, currentStatus, responseTime, error);
+    console.log(`📝 Calling createStatusReport with statusCode: ${response?.status}`);
+    await this.createStatusReport(monitor, currentStatus, responseTime, error, response?.status);
 
     // Get last known status
     const lastStatus = this.lastStatuses.get(monitorId) || 'up';
@@ -238,8 +243,9 @@ class MonitoringService {
   }
 
   // Create status report for every check
-  private async createStatusReport(monitor: Monitor, status: 'up' | 'down', responseTime: number, error?: string) {
-    await drizzleMonitoringService.createStatusReport(monitor.id!, monitor.url, status, responseTime, error);
+  private async createStatusReport(monitor: Monitor, status: 'up' | 'down', responseTime: number, error?: string, statusCode?: number) {
+    console.log(`📝 Calling createStatusReport for monitor ${monitor.id}: ${status}`);
+    await drizzleMonitoringService.createStatusReport(monitor.id!, monitor.url, status, responseTime, error, statusCode);
   }
 
   // Create incident when monitor goes down

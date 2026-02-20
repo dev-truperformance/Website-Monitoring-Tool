@@ -58,29 +58,10 @@ export function CreateOrganizationModal({ isOpen, onClose, onCreate }: CreateOrg
     setIsCreating(true)
     
     try {
-      const response = await fetch('/api/organizations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: organizationName.trim(),
-          type: selectedType,
-        }),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        onCreate(organizationName.trim(), selectedType)
-        setOrganizationName('')
-        onClose()
-        toast.success(`Organization "${organizationName.trim()}" created successfully!`)
-        console.log('Organization created:', result)
-      } else {
-        const error = await response.json()
-        console.error('Failed to create organization:', error)
-        toast.error(error.error || 'Failed to create organization')
-      }
+      // Call the parent callback - let parent handle API call and success/error
+      await onCreate(organizationName.trim(), selectedType)
+      setOrganizationName('')
+      // Don't close here - let parent decide when to close
     } catch (error) {
       console.error('Error creating organization:', error)
       toast.error('Network error. Please try again.')
