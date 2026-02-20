@@ -21,6 +21,7 @@ export const organizations = createTable('organizations', {
   clerkOrganizationId: varchar('clerk_organization_id', { length: 255 }).unique().notNull(),
   name: varchar('name', { length: 255 }).notNull(),
   slug: varchar('slug', { length: 255 }).unique().notNull(),
+  type: varchar('type', { length: 20 }).default('personal').notNull(), // 'personal', 'team', 'enterprise'
   plan: varchar('plan', { length: 50 }).default('free').notNull(),
   maxMonitors: integer('max_monitors').default(5),
   createdAt: timestamp('created_at').defaultNow().notNull(),

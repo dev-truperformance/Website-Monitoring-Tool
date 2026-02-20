@@ -1,0 +1,1 @@
+ALTER TABLE "website_monitoring_organizations" ADD COLUMN "type" varchar(20) DEFAULT 'personal' NOT NULL;

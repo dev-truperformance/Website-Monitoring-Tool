@@ -43,8 +43,21 @@ const SORT_LABELS: Record<SortOption, string> = {
 
 interface Monitor {
   id: string;
+  organizationId: string;
+  createdBy: string;
+  name: string;
   url: string;
   status: 'up' | 'down' | 'paused';
+  intervalSeconds: number;
+  timeoutSeconds: number;
+  isActive: boolean;
+  uptimePercentage: number;
+  lastCheckAt: string;
+  responseTimeMs: number;
+  createdAt: string;
+  updatedAt: string;
+  
+  // Legacy fields for compatibility
   uptime: string;
   lastCheck: string;
   responseTime: string;
@@ -138,7 +151,22 @@ export default function Page() {
       if (response.ok) {
         const data = await response.json();
         console.log("📊 Monitors fetched:", data);
-        setMonitors(data.monitors);
+        
+        // Transform new API data to legacy format for compatibility
+        const transformedMonitors = data.monitors.map((monitor: any) => ({
+          ...monitor,
+          // Legacy fields for backward compatibility
+          uptime: `${monitor.uptimePercentage || 100}%`,
+          lastCheck: monitor.lastCheckAt,
+          responseTime: monitor.responseTimeMs ? `${monitor.responseTimeMs}ms` : '0ms',
+          incidents: 0, // Would need to be calculated from incidents table
+          interval: `${monitor.intervalSeconds}s`,
+          owner: undefined, // Would need to fetch from user data
+          organization: monitor.organizationId,
+          isMonitoringActive: monitor.isActive,
+        }));
+        
+        setMonitors(transformedMonitors);
         
         // Start server monitoring service
         await fetch('/api/monitoring/start', { method: 'POST' });
@@ -235,37 +263,66 @@ export default function Page() {
 
   const handleAddMonitor = async (newMonitor: { url: string; type: string; interval: string; organization?: string }) => {
     try {
-      const response = await fetch('/api/monitors', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: newMonitor.url, interval: newMonitor.interval, organization: newMonitor.organization || undefined }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log("✅ Monitor created:", data);
-        toast.success("Monitor added successfully!");
+      // Get user's organizations to find the correct one
+      const orgsResponse = await fetch('/api/organizations');
+      if (orgsResponse.ok) {
+        const orgsData = await orgsResponse.json();
+        const userOrganizations = orgsData.organizations || [];
         
-        // Add new monitor to existing monitoring service
-        if (data.monitor) {
-          await fetch('/api/monitoring/add', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ monitor: data.monitor })
+        // Use the provided organization or the most recently created one
+        let targetOrgId = newMonitor.organization;
+        if (!targetOrgId && userOrganizations.length > 0) {
+          // If no organization specified, use the most recently created one
+          const mostRecentOrg = userOrganizations.reduce((latest: any, current: any) => {
+            return new Date(latest.createdAt) > new Date(current.createdAt) ? latest : current;
           });
+          targetOrgId = mostRecentOrg.organizationId;
         }
         
-        // Refresh monitors list
-        fetchMonitors();
+        if (!targetOrgId) {
+          toast.error("No organization available. Please create an organization first.");
+          return;
+        }
+      
+        const response = await fetch('/api/monitors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            url: newMonitor.url, 
+            name: newMonitor.url, // Use URL as name for now
+            organizationId: targetOrgId
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log("✅ Monitor created:", data);
+          toast.success("Monitor added successfully!");
+          
+          // Add new monitor to existing monitoring service
+          if (data.monitor) {
+            await fetch('/api/monitoring/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ monitor: data.monitor })
+            });
+          }
+          
+          // Refresh monitors list
+          fetchMonitors();
+        } else {
+          console.error("❌ Failed to create monitor");
+          toast.error("Failed to create monitor");
+        }
       } else {
-        console.error("❌ Failed to create monitor");
-        toast.error("Failed to add monitor");
+        console.error("❌ Failed to fetch organizations");
+        toast.error("Failed to get organizations");
       }
     } catch (error) {
       console.error("❌ Error creating monitor:", error);
-      toast.error("Error adding monitor");
+      toast.error("Network error. Please try again.");
     }
-  }
+  };
 
   const handleViewDetails = (monitor: Monitor) => {
     // For now, we can show an alert or open a modal

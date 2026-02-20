@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, Plus, Users, ArrowRight, Building2, Crown, Sparkles, User } from 'lucide-react'
+import { Search, Plus, Users, ArrowRight, Building2, Crown, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,7 +13,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
 import { CreateOrganizationModal } from '@/components/CreateOrganizationModal'
+import { toast } from 'sonner'
 
 export default function OrganizationPage() {
   const [searchQuery, setSearchQuery] = useState('')
@@ -36,10 +38,42 @@ export default function OrganizationPage() {
     setIsModalOpen(true)
   }
 
-  const handleCreateSubmit = (name: string, type: string) => {
-    // TODO: Implement create organization API call
-    console.log('Creating organization:', { name, type })
-    setIsModalOpen(false)
+  const handleCreateSubmit = async (name: string, type: string) => {
+    try {
+      setIsLoading(true)
+      
+      const response = await fetch('/api/organizations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name,
+          type,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Organization created:', result);
+        setIsModalOpen(false)
+        toast.success(`Organization "${name}" created successfully!`)
+        
+        // Refresh organizations list and redirect to dashboard
+        setTimeout(() => {
+          window.location.href = '/dashboard'
+        }, 1000)
+      } else {
+        const error = await response.json()
+        console.error('Failed to create organization:', error)
+        toast.error(error.error || 'Failed to create organization')
+      }
+    } catch (error) {
+      console.error('Error creating organization:', error)
+      toast.error('Network error. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -58,33 +92,7 @@ export default function OrganizationPage() {
             <Link href="/dashboard">
               <Button size="sm" variant="ghost">Dashboard</Button>
             </Link>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 w-8 rounded-full">
-                  <User className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem>
-                  <Link href="/dashboard" className="flex items-center gap-2">
-                    <span>Profile</span>
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Link href="/dashboard" className="flex items-center gap-2">
-                    <span>Settings</span>
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem className="text-red-600">
-                  <button 
-                    onClick={() => window.location.href = '/'} 
-                    className="flex items-center gap-2 w-full"
-                  >
-                    <span>Sign Out</span>
-                  </button>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <UserButton afterSignOutUrl="/" />
           </div>
         </nav>
       </header>
@@ -219,9 +227,9 @@ export default function OrganizationPage() {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* TODO: Replace with actual popular organizations */}
             {[
-              { name: 'TechCorp Inc', members: 150, monitors: 1200, tier: 'pro' },
-              { name: 'DevTeam Pro', members: 45, monitors: 320, tier: 'team' },
-              { name: 'StartupHub', members: 28, monitors: 180, tier: 'personal' }
+              { name: 'TechCorp Inc', members: 150, monitors: 1200, tier: 'pro', type: 'enterprise' },
+              { name: 'DevTeam Pro', members: 45, monitors: 320, tier: 'team', type: 'team' },
+              { name: 'StartupHub', members: 28, monitors: 180, tier: 'personal', type: 'personal' }
             ].map((org, index) => (
               <Card key={index} className="transition-all hover:shadow-md cursor-pointer">
                 <CardContent className="p-6">
@@ -229,7 +237,12 @@ export default function OrganizationPage() {
                     <div className="p-2 bg-muted rounded-full">
                       <Users className="h-6 w-6 text-muted-foreground" />
                     </div>
-                    <span className="text-sm text-muted-foreground">{org.members} members</span>
+                    <div className="text-right">
+                      <span className="text-sm text-muted-foreground">{org.members} members</span>
+                      <div className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary capitalize">
+                        {org.type}
+                      </div>
+                    </div>
                   </div>
                   <h3 className="font-semibold mb-2">{org.name}</h3>
                   <p className="text-sm text-muted-foreground mb-4">{org.monitors} active monitors</p>

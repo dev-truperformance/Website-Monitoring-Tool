@@ -1,54 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { currentUser } from '@clerk/nextjs/server'
 import { db } from '@/lib/drizzle'
-import { users, monitors } from '@/drizzle/schema'
+import { users, monitors, organizationMembers } from '@/drizzle/schema'
 import { eq, and } from 'drizzle-orm'
-
-// Helper function to calculate uptime
-function calculateUptime(createdAt: Date): string {
-  const now = new Date();
-  const diff = now.getTime() - createdAt.getTime();
-  const minutes = Math.floor(diff / (1000 * 60));
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  
-  if (days > 0) {
-    return `${days} day${days > 1 ? 's' : ''}, ${hours % 24} hr`;
-  } else if (hours > 0) {
-    return `${hours} hr, ${minutes % 60} min`;
-  } else {
-    return `${minutes} min`;
-  }
-}
 
 interface Monitor {
   id: string
-  userId: string
+  organizationId: string
+  createdBy: string
+  name: string
   url: string
   status: 'up' | 'down'
-  uptime: string
-  lastCheck: Date
-  responseTime: string
-  incidents: number
-  interval: string
-  owner?: string
-  organization?: string
+  intervalSeconds: number
+  timeoutSeconds: number
+  isActive: boolean
+  uptimePercentage: number
+  lastCheckAt: Date
+  responseTimeMs: number
   createdAt: Date
   updatedAt: Date
 }
 
 interface DrizzleMonitor {
-  id: number
-  userId: number | null
+  id: string
+  organizationId: string
+  createdBy: string | null
+  name: string
   url: string
+  intervalSeconds: number
+  timeoutSeconds: number
+  isActive: boolean | null
   status: string
-  uptime: string
-  lastCheck: Date
-  responseTime: string
-  incidents: number
-  interval: string
-  owner?: string | null
-  organization?: string | null
+  uptimePercentage: number | null
+  lastCheckAt: Date
+  responseTimeMs: number | null
   createdAt: Date
   updatedAt: Date
 }
@@ -68,41 +53,39 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Fetch monitors for this user
-    const monitorsData = await db.select().from(monitors).where(eq(monitors.userId, user[0].id)).orderBy(monitors.createdAt)
+    // Get user's organizations
+    const userOrgs = await db
+      .select({
+        organizationId: organizationMembers.organizationId,
+      })
+      .from(organizationMembers)
+      .where(eq(organizationMembers.userId, user[0].id))
 
-    // Calculate uptime for each monitor and update if needed
-    const updatedMonitors = await Promise.all(monitorsData.map(async (monitor: DrizzleMonitor) => {
-      const calculatedUptime = calculateUptime(monitor.createdAt);
-      
-      // Update uptime in database if it's different
-      if (monitor.uptime !== calculatedUptime) {
-        await db.update(monitors)
-          .set({ 
-            uptime: calculatedUptime,
-            updatedAt: new Date()
-          })
-          .where(eq(monitors.id, monitor.id));
-        monitor.uptime = calculatedUptime;
-      }
-      
-      return monitor;
-    }));
+    if (!userOrgs || userOrgs.length === 0) {
+      return NextResponse.json({ success: true, monitors: [] })
+    }
+
+    // Fetch monitors for user's organizations
+    const orgIds = userOrgs.map(org => org.organizationId)
+    const monitorsData = await db.select().from(monitors)
+      .where(eq(monitors.organizationId, orgIds[0])) // For now, use first organization
+      .orderBy(monitors.createdAt)
 
     return NextResponse.json({ 
       success: true, 
-      monitors: updatedMonitors.map((monitor: DrizzleMonitor) => ({
+      monitors: monitorsData.map((monitor: DrizzleMonitor) => ({
         id: monitor.id,
-        userId: monitor.userId,
+        organizationId: monitor.organizationId,
+        createdBy: monitor.createdBy,
+        name: monitor.name,
         url: monitor.url,
-        status: monitor.status,
-        uptime: monitor.uptime,
-        lastCheck: monitor.lastCheck.toISOString(),
-        responseTime: monitor.responseTime,
-        incidents: monitor.incidents,
-        interval: monitor.interval,
-        owner: monitor.owner,
-        organization: monitor.organization,
+        status: monitor.status as 'up' | 'down',
+        intervalSeconds: monitor.intervalSeconds,
+        timeoutSeconds: monitor.timeoutSeconds,
+        isActive: monitor.isActive,
+        uptimePercentage: monitor.uptimePercentage,
+        lastCheckAt: monitor.lastCheckAt,
+        responseTimeMs: monitor.responseTimeMs,
         createdAt: monitor.createdAt,
         updatedAt: monitor.updatedAt
       }))
@@ -132,7 +115,7 @@ export async function POST(request: NextRequest) {
     const user = userData[0]
 
     const body = await request.json()
-    const { url, interval, organization } = body
+    const { url, name, organizationId } = body
 
     if (!url) {
       return NextResponse.json({ 
@@ -140,17 +123,37 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
+    // Get user's organizations if organizationId not provided
+    let targetOrganizationId = organizationId
+    if (!targetOrganizationId) {
+      const userOrgs = await db
+        .select({
+          organizationId: organizationMembers.organizationId,
+        })
+        .from(organizationMembers)
+        .where(eq(organizationMembers.userId, user.id))
+
+      if (!userOrgs || userOrgs.length === 0) {
+        return NextResponse.json({ 
+          error: 'User must belong to an organization to create monitors' 
+        }, { status: 403 })
+      }
+
+      targetOrganizationId = userOrgs[0].organizationId
+    }
+
     const newMonitor = await db.insert(monitors).values({
-      userId: user.id,
+      organizationId: targetOrganizationId,
+      createdBy: user.id,
+      name: name || 'Untitled Monitor',
       url,
+      intervalSeconds: 300, // 5 minutes default
+      timeoutSeconds: 10, // 10 seconds default
+      isActive: true,
       status: 'up',
-      uptime: '0 min',
-      lastCheck: new Date(),
-      responseTime: 'Checking...',
-      incidents: 0,
-      interval: interval || '5 min',
-      owner: user.name || clerkUser.fullName || 'Unknown User',
-      organization: organization || undefined
+      uptimePercentage: 100,
+      lastCheckAt: new Date(),
+      responseTimeMs: 0,
     }).returning();
     
     const monitor = newMonitor[0];
@@ -159,16 +162,17 @@ export async function POST(request: NextRequest) {
       success: true, 
       monitor: {
         id: monitor.id,
-        userId: monitor.userId,
+        organizationId: monitor.organizationId,
+        createdBy: monitor.createdBy,
+        name: monitor.name,
         url: monitor.url,
-        status: monitor.status,
-        uptime: monitor.uptime,
-        lastCheck: monitor.lastCheck.toISOString(),
-        responseTime: monitor.responseTime,
-        incidents: monitor.incidents,
-        interval: monitor.interval,
-        owner: monitor.owner,
-        organization: monitor.organization,
+        status: monitor.status as 'up' | 'down',
+        intervalSeconds: monitor.intervalSeconds,
+        timeoutSeconds: monitor.timeoutSeconds,
+        isActive: monitor.isActive,
+        uptimePercentage: monitor.uptimePercentage,
+        lastCheckAt: monitor.lastCheckAt,
+        responseTimeMs: monitor.responseTimeMs,
         createdAt: monitor.createdAt,
         updatedAt: monitor.updatedAt
       }
@@ -206,11 +210,23 @@ export async function DELETE(request: NextRequest) {
     
     const user = userData[0]
 
-    // First get the monitor to ensure it belongs to this user
+    // Get user's organizations to verify access
+    const userOrgs = await db
+      .select({
+        organizationId: organizationMembers.organizationId,
+      })
+      .from(organizationMembers)
+      .where(eq(organizationMembers.userId, user.id))
+
+    if (!userOrgs || userOrgs.length === 0) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
+
+    // Get the monitor and verify it belongs to user's organization
     const monitorData = await db.select().from(monitors)
       .where(and(
-        eq(monitors.id, parseInt(monitorId!)),
-        eq(monitors.userId, user.id!)
+        eq(monitors.id, monitorId),
+        eq(monitors.organizationId, userOrgs[0].organizationId)
       ))
       .limit(1);
 
@@ -220,8 +236,8 @@ export async function DELETE(request: NextRequest) {
       }, { status: 404 })
     }
 
-    // Delete the monitor
-    const result = await db.delete(monitors).where(eq(monitors.id, parseInt(monitorId!))).returning();
+    // Delete monitor
+    const result = await db.delete(monitors).where(eq(monitors.id, monitorId)).returning();
 
     return NextResponse.json({ 
       success: true, 

@@ -1,80 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { db } from '@/lib/drizzle';
-import { organizations, users, organizationMembers } from '@/drizzle/schema';
+import { organizations, organizationMembers, users } from '@/drizzle/schema';
 import { eq } from 'drizzle-orm';
-
-export async function POST(request: NextRequest) {
-  try {
-    const { userId } = await auth();
-    
-    if (!userId) {
-      console.log('No userId found in auth:', userId);
-      return NextResponse.json({ error: 'Unauthorized - No user ID found' }, { status: 401 });
-    }
-
-    const { name, type } = await request.json();
-
-    if (!name || !type) {
-      return NextResponse.json({ error: 'Organization name and type are required' }, { status: 400 });
-    }
-
-    // Generate slug from name
-    const slug = name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-
-    console.log('Creating organization for user:', userId);
-
-    // Check if user exists in our database
-    let user = await db.select().from(users).where(eq(users.clerkId, userId)).limit(1);
-    
-    if (user.length === 0) {
-      // Create user in our database without Clerk API call for now
-      const newUser = await db.insert(users).values({
-        clerkId: userId,
-        email: '', // Will be updated later
-        name: null,
-        avatar: null,
-      }).returning();
-      
-      user = newUser;
-      console.log('Created new user in database:', user[0]);
-    }
-
-    // Create organization in our database first (simplified approach)
-    const organization = await db.insert(organizations).values({
-      clerkOrganizationId: `org_${Date.now()}`, // Temporary ID
-      name,
-      slug,
-      plan: type === 'enterprise' ? 'pro' : 'free',
-      maxMonitors: type === 'enterprise' ? 100 : type === 'team' ? 20 : 5,
-    }).returning();
-
-    // Add user as owner in our database
-    await db.insert(organizationMembers).values({
-      organizationId: organization[0].id,
-      userId: user[0].id,
-      clerkMembershipId: `membership_${Date.now()}`, // Temporary ID
-      role: 'owner',
-    });
-
-    console.log('Organization created successfully:', organization[0]);
-
-    return NextResponse.json({
-      success: true,
-      organization: organization[0],
-    });
-
-  } catch (error) {
-    console.error('Error creating organization:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to create organization' },
-      { status: 500 }
-    );
-  }
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -84,34 +12,177 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get organizations from Clerk
+    const clerk = await clerkClient();
+    const clerkOrgs = await clerk.organizations.getOrganizationList({});
+
     // Get user from our database
-    const user = await db.select().from(users).where(eq(users.clerkId, userId)).limit(1);
-    
-    if (user.length === 0) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    let dbUser = await db.query.users.findFirst({
+      where: eq(users.clerkId, userId),
+    });
+
+    if (!dbUser) {
+      // Create user if doesn't exist
+      await db.insert(users).values({
+        clerkId: userId,
+        email: '', // Will be updated later
+        name: null,
+        avatar: null,
+      });
+      
+      // Fetch the newly created user
+      dbUser = await db.query.users.findFirst({
+        where: eq(users.clerkId, userId),
+      });
     }
 
-    // Get user's organizations
-    const userOrgs = await db
-      .select({
-        organization: organizations,
-        membership: organizationMembers,
-      })
-      .from(organizationMembers)
-      .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
-      .where(eq(organizationMembers.userId, user[0].id));
+    // Sync organizations from Clerk to our database
+    const syncedOrgs = [];
+    for (const clerkOrg of clerkOrgs.data) {
+      // Check if organization already exists in our DB
+      const existingOrg = await db.query.organizations.findFirst({
+        where: eq(organizations.clerkOrganizationId, clerkOrg.id),
+      });
+
+      if (!existingOrg) {
+        // Create organization in our DB
+        const newOrg = await db.insert(organizations).values({
+          clerkOrganizationId: clerkOrg.id,
+          name: clerkOrg.name,
+          slug: clerkOrg.slug || '',
+          type: 'personal',
+          plan: 'free',
+          maxMonitors: 5,
+        }).returning();
+
+        // Add membership record
+        await db.insert(organizationMembers).values({
+          organizationId: newOrg[0].id,
+          userId: dbUser!.id,
+          clerkMembershipId: '', // Will be updated later when we get the actual membership
+          role: 'owner',
+        });
+
+        syncedOrgs.push({
+          id: newOrg[0].id,
+          clerkOrganizationId: clerkOrg.id,
+          name: clerkOrg.name,
+          slug: clerkOrg.slug || '',
+          type: 'personal',
+          plan: 'free',
+          maxMonitors: 5,
+          createdAt: newOrg[0].createdAt,
+          updatedAt: newOrg[0].updatedAt,
+        });
+      } else {
+        // Organization already exists, just add membership
+        await db.insert(organizationMembers).values({
+          organizationId: existingOrg.id,
+          userId: dbUser!.id,
+          clerkMembershipId: '', // Will be updated later when we get the actual membership
+          role: 'owner',
+        });
+
+        syncedOrgs.push({
+          id: existingOrg.id,
+          clerkOrganizationId: clerkOrg.id,
+          name: existingOrg.name,
+          slug: existingOrg.slug || '',
+          type: 'personal',
+          plan: 'free',
+          maxMonitors: 5,
+          createdAt: existingOrg.createdAt,
+          updatedAt: existingOrg.updatedAt,
+        });
+      }
+    }
 
     return NextResponse.json({
-      organizations: userOrgs.map(org => ({
-        ...org.organization,
-        role: org.membership.role,
-      })),
+      success: true,
+      organizations: syncedOrgs,
     });
 
   } catch (error) {
     console.error('Error fetching organizations:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to fetch organizations' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const { userId } = await auth();
+    
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { name, type } = await request.json();
+
+    if (!name) {
+      return NextResponse.json({ error: 'Organization name is required' }, { status: 400 });
+    }
+
+    // Create organization in Clerk
+    const clerk = await clerkClient();
+    const clerkOrg = await clerk.organizations.createOrganization({
+      name,
+    });
+
+    // Find user in your DB
+    const dbUser = await db.query.users.findFirst({
+      where: eq(users.clerkId, userId),
+    });
+
+    if (!dbUser) {
+      throw new Error('User not found in database');
+    }
+
+    // Save organization in your DB
+    const newOrg = await db.insert(organizations).values({
+      clerkOrganizationId: clerkOrg.id,
+      name: clerkOrg.name,
+      slug: clerkOrg.slug || '',
+      type: type || 'personal',
+      plan: type === 'enterprise' ? 'pro' : 'free',
+      maxMonitors: type === 'enterprise' ? 100 : type === 'team' ? 20 : 5,
+    }).returning();
+
+    // Add membership record
+    await db.insert(organizationMembers).values({
+      organizationId: newOrg[0].id,
+      userId: dbUser.id,
+      clerkMembershipId: '', // Will be updated later when we get the actual membership
+      role: 'owner',
+    });
+
+    console.log('✅ Organization created successfully:', {
+      clerkId: clerkOrg.id,
+      dbId: newOrg[0].id,
+      name: clerkOrg.name,
+    });
+
+    return NextResponse.json({
+      success: true,
+      organization: {
+        id: newOrg[0].id,
+        clerkOrganizationId: clerkOrg.id,
+        name: clerkOrg.name,
+        slug: clerkOrg.slug || '',
+        type: type || 'personal',
+        plan: type === 'enterprise' ? 'pro' : 'free',
+        maxMonitors: type === 'enterprise' ? 100 : type === 'team' ? 20 : 5,
+        createdAt: newOrg[0].createdAt,
+        updatedAt: newOrg[0].updatedAt,
+      },
+    });
+
+  } catch (error) {
+    console.error('Error creating organization:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to create organization' },
       { status: 500 }
     );
   }

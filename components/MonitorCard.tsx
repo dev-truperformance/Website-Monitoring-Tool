@@ -9,8 +9,21 @@ import { formatDate } from '@/utils/dateUtils';
 
 interface Monitor {
   id: string;
+  organizationId: string;
+  createdBy: string;
+  name: string;
   url: string;
   status: 'up' | 'down' | 'paused';
+  intervalSeconds: number;
+  timeoutSeconds: number;
+  isActive: boolean;
+  uptimePercentage: number;
+  lastCheckAt: string;
+  responseTimeMs: number;
+  createdAt: string;
+  updatedAt: string;
+  
+  // Legacy fields for compatibility
   uptime: string;
   lastCheck: string;
   responseTime: string;
@@ -18,7 +31,6 @@ interface Monitor {
   interval: string;
   owner?: string;
   organization?: string;
-  isMonitoringActive?: boolean;
 }
 
 interface MonitorCardProps {

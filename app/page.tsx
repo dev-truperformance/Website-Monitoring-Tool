@@ -1,3 +1,5 @@
+'use client';
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import ThemeToggle from "@/components/ui/theme-toggle";
@@ -6,16 +8,9 @@ import {
   CheckCircle2,
   ArrowRight,
   Sparkles,
-  User,
 } from "lucide-react";
-import { SignedIn, SignedOut } from "@clerk/nextjs";
+import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 export default function Home() {
   return (
@@ -57,33 +52,7 @@ export default function Home() {
               <Link href="/dashboard">
                 <Button size="sm">Dashboard</Button>
               </Link>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-8 w-8 rounded-full">
-                    <User className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem>
-                    <Link href="/dashboard" className="flex items-center gap-2">
-                      <span>Profile</span>
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <Link href="/dashboard" className="flex items-center gap-2">
-                      <span>Settings</span>
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-600">
-                    <button 
-                      onClick={() => window.location.href = '/'} 
-                      className="flex items-center gap-2 w-full"
-                    >
-                      <span>Sign Out</span>
-                    </button>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <UserButton afterSignOutUrl="/" />
             </SignedIn>
           </div>
         </nav>
