@@ -3,8 +3,8 @@ import { currentUser } from '@clerk/nextjs/server'
 import { clerkClient } from '@clerk/nextjs/server'
 import { DrizzleUserService } from '@/lib/drizzle-user-service'
 import { db } from '@/lib/drizzle'
-import { users, monitors } from '@/drizzle/schema'
-import { eq } from 'drizzle-orm'
+import { users, monitors, organizationMembers } from '@/drizzle/schema'
+import { eq, inArray } from 'drizzle-orm'
 
 export async function DELETE(request: NextRequest) {
     try {
@@ -16,9 +16,19 @@ export async function DELETE(request: NextRequest) {
 
         const dbUser = await DrizzleUserService.getUserByClerkId(clerkUser.id)
 
-        // 1. Delete all monitors belonging to this user
+        // 1. Delete all monitors belonging to this user through organizations
         if (dbUser) {
-            await db.delete(monitors).where(eq(monitors.userId, dbUser.id))
+            // Get user's organizations
+            const userOrgMemberships = await db.select({ organizationId: organizationMembers.organizationId })
+                .from(organizationMembers)
+                .where(eq(organizationMembers.userId, dbUser.id))
+            
+            const organizationIds = userOrgMemberships.map(m => m.organizationId)
+            
+            // Delete monitors in those organizations
+            if (organizationIds.length > 0) {
+                await db.delete(monitors).where(inArray(monitors.organizationId, organizationIds))
+            }
         }
 
         // 2. Delete user from database

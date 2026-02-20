@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { clerkClient } from '@clerk/nextjs/server'
 import { Webhook } from 'svix'
-import { UserService } from '@/lib/user-service'
+import { DrizzleUserService } from '@/lib/drizzle-user-service'
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 async function handleUserCreated(data: any) {
   try {
     console.log('User created:', data.id)
-    await UserService.syncUserFromClerk(data)
+    await DrizzleUserService.syncUserFromClerk(data)
   } catch (error) {
     console.error('Error handling user created:', error)
   }
@@ -65,7 +65,7 @@ async function handleUserCreated(data: any) {
 async function handleUserUpdated(data: any) {
   try {
     console.log('User updated:', data.id)
-    await UserService.syncUserFromClerk(data)
+    await DrizzleUserService.syncUserFromClerk(data)
   } catch (error) {
     console.error('Error handling user updated:', error)
   }
@@ -74,7 +74,7 @@ async function handleUserUpdated(data: any) {
 async function handleUserDeleted(data: any) {
   try {
     console.log('User deleted:', data.id)
-    await UserService.deleteUser(data.id)
+    await DrizzleUserService.deleteUser(data.id)
   } catch (error) {
     console.error('Error handling user deleted:', error)
   }

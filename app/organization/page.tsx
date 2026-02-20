@@ -13,14 +13,41 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+import { SignedIn, SignedOut, UserButton, useUser } from '@clerk/nextjs'
 import { CreateOrganizationModal } from '@/components/CreateOrganizationModal'
 import { toast } from 'sonner'
+import { useEffect } from 'react'
 
 export default function OrganizationPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const { isSignedIn, user } = useUser()
+
+  // Sync user to database when they land on organization page
+  useEffect(() => {
+    if (isSignedIn && user) {
+      console.log('Syncing user on organization page load')
+      syncUserToDatabase()
+    }
+  }, [isSignedIn, user])
+
+  const syncUserToDatabase = async () => {
+    try {
+      const response = await fetch('/api/user/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        console.error('Failed to sync user on organization page')
+      }
+    } catch (error) {
+      console.error('Error syncing user on organization page:', error)
+    }
+  }
 
   const handleSearch = async (query: string) => {
     setIsLoading(true)

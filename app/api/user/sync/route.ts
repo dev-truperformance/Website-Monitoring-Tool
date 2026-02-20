@@ -24,10 +24,7 @@ export async function POST(request: NextRequest) {
         clerkId: user.clerkId,
         email: user.email,
         fullName: user.name,
-        imageUrl: user.avatar,
-        subscription_tier: user.subscriptionTier,
-        monitors_limit: user.monitorsLimit,
-        monitors_count: user.monitorsCount
+        imageUrl: user.avatar
       }
     })
   } catch (error) {
@@ -59,11 +56,7 @@ export async function GET(request: NextRequest) {
         email: user.email,
         fullName: user.name,
         imageUrl: user.avatar,
-        subscription_tier: user.subscriptionTier,
-        monitors_limit: user.monitorsLimit,
-        monitors_count: user.monitorsCount,
-        createdAt: user.createdAt,
-        lastSignInAt: user.lastSignInAt
+        createdAt: user.createdAt
       }
     })
   } catch (error) {

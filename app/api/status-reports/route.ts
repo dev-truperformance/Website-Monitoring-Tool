@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { currentUser } from '@clerk/nextjs/server'
 import { db } from '@/lib/drizzle'
-import { users, monitors, statusReports } from '@/drizzle/schema'
+import { users, monitors, statusReports, organizationMembers } from '@/drizzle/schema'
 import { eq, and, inArray } from 'drizzle-orm'
 
 export async function POST(request: NextRequest) {
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the monitor to verify it exists and get the user ID
-    const monitorData = await db.select().from(monitors).where(eq(monitors.id, parseInt(monitorId))).limit(1)
+    const monitorData = await db.select().from(monitors).where(eq(monitors.id, monitorId)).limit(1)
 
     if (!monitorData || monitorData.length === 0) {
       return NextResponse.json({ error: 'Monitor not found' }, { status: 404 })
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
 
     // Create status report record
     const statusReportData = await db.insert(statusReports).values({
-      monitorId: parseInt(monitorId),
+      monitorId,
       url,
       status,
       responseTime,
@@ -44,11 +44,11 @@ export async function POST(request: NextRequest) {
     await db.update(monitors)
       .set({
         status,
-        lastCheck: new Date(),
-        responseTime: `${responseTime}ms`,
+        lastCheckAt: new Date(),
+        responseTimeMs: responseTime,
         updatedAt: new Date()
       })
-      .where(eq(monitors.id, parseInt(monitorId)));
+      .where(eq(monitors.id, monitorId));
 
     console.log(`📊 Status report created for ${url}: ${status} (${responseTime}ms)`)
 
@@ -88,13 +88,20 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '100')
     const offset = parseInt(searchParams.get('offset') || '0')
 
-    // Build where clause - filter by user's monitors
-    const userMonitors = await db.select({ id: monitors.id }).from(monitors).where(eq(monitors.userId, user.id))
+    // Build where clause - filter by user's monitors through organization
+    const userOrgMemberships = await db.select({ organizationId: organizationMembers.organizationId })
+      .from(organizationMembers)
+      .where(eq(organizationMembers.userId, user.id))
+    
+    const organizationIds = userOrgMemberships.map(m => m.organizationId)
+    const userMonitors = await db.select({ id: monitors.id })
+      .from(monitors)
+      .where(inArray(monitors.organizationId, organizationIds))
     const monitorIds = userMonitors.map(m => m.id)
     
     let whereCondition = inArray(statusReports.monitorId, monitorIds)
     if (monitorId) {
-      whereCondition = eq(statusReports.monitorId, parseInt(monitorId))
+      whereCondition = eq(statusReports.monitorId, monitorId)
     }
 
     // Fetch status reports

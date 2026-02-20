@@ -20,7 +20,7 @@ interface StatusPanelProps {
 export default function StatusPanel({ monitors }: StatusPanelProps) {
   const upCount = monitors.filter(m => m.status === 'up').length;
   const downCount = monitors.filter(m => m.status === 'down').length;
-  const pausedCount = monitors.filter(m => m.status === 'paused').length;
+  const pausedCount = 0; // No paused status in current schema
 
   return (
     <div className="w-80 bg-card border-l p-6 shadow-xl">

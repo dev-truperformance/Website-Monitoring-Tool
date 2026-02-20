@@ -3,36 +3,24 @@ import { users } from '@/drizzle/schema'
 import { eq } from 'drizzle-orm'
 
 export interface DrizzleUser {
-  id: number;
-  clerkId: string | null;
+  id: string;
+  clerkId: string;
   email: string;
   name: string | null;
   avatar: string | null;
   createdAt: Date;
   updatedAt: Date;
-  lastSignInAt: Date | null;
-  isActive: boolean | null;
-  subscriptionTier: string | null;
-  subscriptionStatus: string | null;
-  monitorsLimit: number | null;
-  monitorsCount: number | null;
 }
 
 export class DrizzleUserService {
-  static async createUser(userData: Omit<DrizzleUser, 'id' | 'createdAt' | 'updatedAt' | 'monitorsCount'>): Promise<DrizzleUser> {
+  static async createUser(userData: Omit<DrizzleUser, 'id' | 'createdAt' | 'updatedAt'>): Promise<DrizzleUser> {
     const result = await db.insert(users).values({
       clerkId: userData.clerkId,
       email: userData.email,
       name: userData.name,
       avatar: userData.avatar,
-      lastSignInAt: userData.lastSignInAt,
-      isActive: userData.isActive,
       createdAt: new Date(),
-      updatedAt: new Date(),
-      subscriptionTier: 'free',
-      subscriptionStatus: 'active',
-      monitorsLimit: 5,
-      monitorsCount: 0
+      updatedAt: new Date()
     }).returning();
 
     const user = result[0];
@@ -56,15 +44,7 @@ export class DrizzleUserService {
     return result.length > 0 ? result[0] : null;
   }
 
-  static async updateUserLastSignIn(clerkId: string): Promise<void> {
-    await db.update(users)
-      .set({ 
-        lastSignInAt: new Date(),
-        updatedAt: new Date()
-      })
-      .where(eq(users.clerkId, clerkId));
-  }
-
+  
   static async syncUserFromClerk(clerkUser: any): Promise<DrizzleUser> {
     const existingUser = await this.getUserByClerkId(clerkUser.id);
     
@@ -74,7 +54,6 @@ export class DrizzleUserService {
         email: clerkUser.primaryEmailAddress?.emailAddress || existingUser.email,
         name: clerkUser.fullName || existingUser.name,
         avatar: clerkUser.imageUrl || existingUser.avatar,
-        lastSignInAt: new Date()
       };
       
       const updatedUser = await this.updateUser(clerkUser.id, updateData);
@@ -86,11 +65,6 @@ export class DrizzleUserService {
         email: clerkUser.primaryEmailAddress?.emailAddress || '',
         name: clerkUser.fullName || undefined,
         avatar: clerkUser.imageUrl || undefined,
-        lastSignInAt: new Date(),
-        isActive: true,
-        subscriptionTier: 'free',
-        subscriptionStatus: 'active',
-        monitorsLimit: 5
       });
     }
   }

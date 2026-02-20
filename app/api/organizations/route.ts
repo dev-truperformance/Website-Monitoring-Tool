@@ -130,15 +130,15 @@ export async function POST(request: NextRequest) {
     const clerkOrg = await clerk.organizations.createOrganization({
       name,
     });
-
+    console.log('--------> Clerk org created:', clerkOrg);
     // Find user in your DB
     const dbUser = await db.query.users.findFirst({
       where: eq(users.clerkId, userId),
     });
 
-    if (!dbUser) {
-      throw new Error('User not found in database');
-    }
+    // if (!dbUser) {
+    //   throw new Error('User not found in database');
+    // }
 
     // Save organization in your DB
     const newOrg = await db.insert(organizations).values({
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
     // Add membership record
     await db.insert(organizationMembers).values({
       organizationId: newOrg[0].id,
-      userId: dbUser.id,
+      userId: dbUser!.id,
       clerkMembershipId: '', // Will be updated later when we get the actual membership
       role: 'owner',
     });
